@@ -1,0 +1,173 @@
+
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Security.Cryptography;
+//using NetSuiteConsoleApp.com.netsuite.webservices;  // latest 2018 endpoint
+using NetSuiteConsoleApp.netsuite2018v1;   // latest 2018 endpoint with account id
+using System.Configuration;  // to call variables from appconfig
+using System.Net;
+using System.Xml;
+using System.IO;
+using System.Globalization;
+
+
+namespace NetSuiteConsoleApp
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+
+
+            // Force TLS 1.2
+            System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+
+            // In order to enable SOAPscope to work through SSL. Refer to FAQ for more details
+            ServicePointManager.ServerCertificateValidationCallback += delegate (object sender, System.Security.Cryptography.X509Certificates.X509Certificate certificate, System.Security.Cryptography.X509Certificates.X509Chain chain, System.Net.Security.SslPolicyErrors sslPolicyErrors)
+            {
+                return true;
+            };
+
+            string compid = "3784219_SB1";
+            string consumerkey = "967548ad99cb489711e426094e159ccf72927157e7c825ba6b03b79ee931842d";
+            string consumersecret = "4213c5230525362fd106d9118ac30a51ae61d335eaeddbd315c60c477dcb9eb5";
+            //  string tokenid = ConfigurationManager.AppSettings["tokenid"].ToString();
+            string tokenid = "9a55a3ffac62d379e9f2ceb1846f71993168d78e607707dacf1f0709bfe4462c";
+            string tokensecret = "56f6dd033246004106baed019dde215114f7a723a7e3354e58475968950f9259";
+
+
+
+            NetSuiteService _service = new NetSuiteService();
+
+
+            // Create Passport and assign it to _service.passport
+            TokenPassport passport = new TokenPassport();
+            passport.account = compid;
+            passport.consumerKey = consumerkey;
+            passport.token = tokenid;
+
+
+
+            //Computing for nonce
+            RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider();
+            byte[] data = new byte[20];
+            rng.GetBytes(data);
+            int value = Math.Abs(BitConverter.ToInt32(data, 0));
+            string nonce = value.ToString();
+            Console.WriteLine("Nonce is " + nonce);
+            passport.nonce = nonce;
+
+
+
+            //computing for timestamp
+            Int32 unixTimestamp = (Int32)(DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1))).TotalSeconds;
+            string timestamp = unixTimestamp.ToString();
+            Console.WriteLine("Timestamp is " + timestamp);
+            passport.timestamp = Convert.ToInt64(timestamp);
+
+
+
+            //Computing for Signature
+            string baseString = compid + "&" + consumerkey + "&" + tokenid + "&" + nonce + "&" + timestamp;
+            string key = consumersecret + "&" + tokensecret;
+            Console.WriteLine("Base String is " + baseString);
+            Console.WriteLine("Signing Key is " + key);
+            string signature = "";
+            ASCIIEncoding encoding = new ASCIIEncoding();
+            byte[] keyByte = encoding.GetBytes(key);
+            byte[] messageBytes = encoding.GetBytes(baseString);
+            using (HMACSHA1 myhmacsha1 = new HMACSHA1(keyByte))
+            {
+                byte[] hashmessage = myhmacsha1.ComputeHash(messageBytes);
+                signature = Convert.ToBase64String(hashmessage);
+            }
+            Console.WriteLine("Computed Signature is " + signature);
+            TokenPassportSignature sign = new TokenPassportSignature();
+            sign.algorithm = "HMAC-SHA1";
+            sign.Value = signature;
+            passport.signature = sign;
+
+
+            _service.tokenPassport = passport;
+
+
+
+            //  ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3;
+
+            //   ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
+
+
+            /*
+            // Create an example reference to Customer ID 100
+            RecordRef recref = new RecordRef();
+            recref.type = RecordType.customer;
+            recref.typeSpecified = true;
+            recref.internalId = "111";
+
+            // Fetch Customer record
+            ReadResponse response_get = _service.get(recref);
+
+           */
+
+
+            // Call add Journal Entry method
+            addJournalEntry();
+            
+
+
+        }
+
+
+        public static void addJournalEntry(NetSuiteService pService)
+        {
+
+            JournalEntry newJournalEntry = new JournalEntry();
+            newJournalEntry.externalId = "201A";
+            newJournalEntry.tranId = "Jou125135";   // added
+            newJournalEntry.tranDate = DateTime.ParseExact("18/12/2018", "mm/dd/yyyy", CultureInfo.InvariantCulture);
+
+            RecordRef mySubsidiary = new RecordRef();
+            mySubsidiary.internalId = "1";
+            mySubsidiary.name = "MEG";   //added
+            newJournalEntry.subsidiary = mySubsidiary;
+
+            RecordRef myCurrency = new RecordRef();
+            //  myCurrency.internalId = "3";
+            myCurrency.name = "GBP";    //added
+            newJournalEntry.currency = myCurrency;
+
+            newJournalEntry.exchangeRate = 1;   // .911;
+            newJournalEntry.exchangeRateSpecified = true;
+
+            RecordRef myDebitAccount = new RecordRef();
+            myDebitAccount.internalId = "7";
+            myDebitAccount.name = "Meg Banks : MEG - Expenses Bank Account";  // added
+
+            RecordRef myCreditAccount = new RecordRef();
+            myCreditAccount.internalId = "8";
+            myCreditAccount.name = "Uncleared Payments";   // added
+
+            newJournalEntry.lineList = new JournalEntryLineList();
+            newJournalEntry.lineList.line = new JournalEntryLine[2];
+
+            newJournalEntry.lineList.line[0] = new JournalEntryLine();
+            newJournalEntry.lineList.line[0].account = myDebitAccount;
+            newJournalEntry.lineList.line[0].debit = 50;
+            newJournalEntry.lineList.line[0].debitSpecified = true;
+
+            newJournalEntry.lineList.line[1] = new JournalEntryLine();
+            newJournalEntry.lineList.line[1].account = myCreditAccount;
+            newJournalEntry.lineList.line[1].credit = 50;
+            newJournalEntry.lineList.line[1].creditSpecified = true;
+
+            pService.add(newJournalEntry);
+
+        }
+
+
+    }
+}
